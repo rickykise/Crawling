@@ -1,0 +1,104 @@
+import requests,re
+import pymysql,time,datetime
+import urllib.parse
+from requests import Session
+from requests.packages.urllib3.util import Retry
+from requests.adapters import HTTPAdapter
+from webhardFun import *
+from selenium import webdriver
+from bs4 import BeautifulSoup
+
+def getContents(url):
+    r = requests.get(url)
+    c = r.content
+    soup = BeautifulSoup(c,"html.parser")
+    cnt_chk = 0
+
+    title = soup.find('title').text.strip().split("- ")[1]
+    cnt_price = soup.find('span', id='chkPacket').text.replace(",","").strip()
+    cnt_writer = soup.find('font', 'name_s').text.strip()
+    cnt_vol = soup.find('span', id='chkSize').text.replace(",","").strip()
+    cnt_fname = soup.find('td', 'td_tit').text.strip()
+
+    if soup.find('td', 'td_tit').find('img'):
+        aaa = soup.find('td', 'td_tit').find('img')['src']
+        if aaa.find('icon_alli') != -1:
+            cnt_chk = 1
+
+    data = {
+        'Cnt_title': title,
+        'Cnt_price': cnt_price,
+        'Cnt_writer' : cnt_writer,
+        'Cnt_vol' : cnt_vol,
+        'Cnt_fname' : cnt_fname,
+        'Cnt_chk': cnt_chk
+    }
+    # print(data)
+    return data
+
+def startCrawling(site):
+    i = 0;check = True
+    link = "http://www.mfile.co.kr/storage.php?section="+site+"&liststate=&nPage="
+    while check:
+        i = i+1
+        if i == 4:
+            break
+        r = requests.get(link+str(i))
+        c = r.content
+        soup = BeautifulSoup(c,"html.parser")
+        a = soup.find_all('a', href='#storage_view')
+        try:
+            for item in a:
+                cnt_num = item['onclick'].split("winBbsInfo('")[1].split("','")[0]
+                url = 'http://www.mfile.co.kr/storage.php?act=view&idx='+cnt_num+'&search_sort=undefined'
+                img = item.find_all('img')
+                if len(img) == 1:
+                    if item.find_all('img')[0]['src'].find('adult') != -1:
+                        continue
+                elif len(img) == 2:
+                    if item.find_all('img')[1]['src'].find('adult') != -1:
+                        continue
+                elif len(img) == 3:
+                    if item.find_all('img')[2]['src'].find('adult') != -1:
+                        continue
+                resultData = getContents(url)
+                title_null = titleNull(resultData['Cnt_title'])
+                # 키워드 체크
+                getKey = getKeyword()
+                keyCheck = checkTitle(title_null, getKey)
+                if keyCheck['m'] == None:
+                    dbResult = insertDB('mfile',resultData['Cnt_title'],title_null,url)
+                    continue
+                keyCheck2 = checkTitle2(title_null, getKey)
+                if keyCheck2['m'] == None:
+                    dbResult = insertDB('mfile',resultData['Cnt_title'],title_null,url)
+                    continue
+
+                data = {
+                    'Cnt_num' : cnt_num,
+                    'Cnt_osp' : 'mfile',
+                    'Cnt_title': resultData['Cnt_title'],
+                    'Cnt_title_null': title_null,
+                    'Cnt_url': url,
+                    'Cnt_price': resultData['Cnt_price'],
+                    'Cnt_writer' : resultData['Cnt_writer'],
+                    'Cnt_vol' : resultData['Cnt_vol'],
+                    'Cnt_fname' : resultData['Cnt_fname'],
+                    'Cnt_chk': resultData['Cnt_chk']
+                }
+                # print(data)
+
+                dbResult = insertALL(data)
+        except:
+            continue
+
+if __name__=='__main__':
+    start_time = time.time()
+
+    print("mfile 크롤링 시작")
+    site = ['MOV','DRA','MED','ANI']
+    for s in site:
+        startCrawling(s)
+    print("mfile 크롤링 끝")
+    print("--- %s seconds ---" %(time.time() - start_time))
+    print("=================================")
